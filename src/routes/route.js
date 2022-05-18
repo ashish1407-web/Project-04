@@ -1,5 +1,4 @@
 
-const { Router } = require('express');
 const express=require('express')
 const route=express.Router();
 const urlController=require('../controller/urlController')
