@@ -10,7 +10,7 @@ const mongoose = require("mongoose");
 
 mongoose
   .connect(
-    "mongodb+srv://ashishvyas1407:UC9yz82WjVua2m9v@cluster0.osyiq.mongodb.net/ashishdb",
+    "mongodb+srv://ashishvyas1407:UC9yz82WjVua2m9v@cluster0.osyiq.mongodb.net/group91Database",
     { useNewUrlParser: true }
   )
   .then(() => console.log("MongoDB is connected"))
@@ -21,5 +21,7 @@ app.use("/", route);
 app.listen(process.env.PORT || 3000, function () {
   console.log("Express app is running on " + " " + (process.env.PORT || 3000));
 });
+
+
 
 
