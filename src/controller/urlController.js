@@ -1,85 +1,285 @@
-const urlModel=require('../models/urlModel')
+
+const urlModel = require('../models/urlModel')
 const validUrl = require('valid-url')
 const shortid = require('shortid')
-const baseUrl='http://localhost:3000'
-
-const redis = require("redis");
-
-const { promisify } = require("util");
-
-//Connect to redis
-const redisClient = redis.createClient(
-  10023,
-  "redis-10023.c8.us-east-1-4.ec2.cloud.redislabs.com",
-  { no_ready_check: true }
-);
-redisClient.auth("g6SVK8Vi3BEIrxxlasgMPfuaygE9kAji", function (err) {
-  if (err) throw err;
-});
-
-redisClient.on("connect", async function () {
-  console.log("Connected to Redis..");
-});
+const  {redisClient}  = require('./Redis.js')
+const { promisify } = require("util")
+const baseUrl = 'http://localhost:3000'
 
 const SET_ASYNC = promisify(redisClient.SET).bind(redisClient);
 const GET_ASYNC = promisify(redisClient.GET).bind(redisClient);
 
-const shortUrl=async function(req,res){
-   try{
-    let longUrl=req.body.longUrl;
-   if(!longUrl){
-return res.status(400).send({status:false,msg:"longUrl is required"})
-   }
-if(Object.keys(req.body).length==0 || Object.keys(req.body).length>1)
-{
-    return res.status(400).send({ status: false, Message: "Invalid Request Params only one parameter required" });
-}
-if (!validUrl.isUri(longUrl)) {
-    return res.status(400).json('Invalid base URL')
-}
-    let check=await urlModel.findOne({longUrl:longUrl})
-    if(check){
-        return res.status(409).send({status:false,message:"already exist"})
+const isValid = function (value) {
+    if (typeof value === "undefined" || typeof value === null) return false;
+    if (typeof value === "string" && value.trim().length === 0) return false;
+    return true;
+};
+
+const isValidRequestBody = function (RequestBody) {
+if(Object.keys(RequestBody).length==0 || Object.keys(RequestBody).length>1) return false;
+return true;
+};
+const shortUrl = async (req,res)=>{
+        try {
+            let longUrl = req.body.longUrl;
+            if (!isValidRequestBody(req.body)) {
+                return res.status(400).send({ status: false, message: "Invalid request. Please provide url details", });
+            }
+            if (!isValid(longUrl)) {
+                return res.status(400).send({ status: false, message: "Please provide longURL" })
+            }
+            if (!(/^(https[s]?:\/\/){0,1}(www\.){0,1}[a-zA-Z0-9\.\-]+\.[a-zA-Z]{2,5}[\.]{0,1}/.test(longUrl))) {
+                return res.status(400).send({ status: false, message: "Please enter valid LongURL" })
+            }
+            console.log(longUrl);
+            if (!validUrl.isUri(baseUrl)) {
+                return res.status(400).json({ status: false, message: "Please enter valid Base URL" })
+            }
+            if (!validUrl.isUri(longUrl)) {
+                return res.status(400).json({ status: false, message: "Please enter valid LongURL" })
+            }
+            let check = await urlModel.findOne({ longUrl: longUrl })
+            if (check) {
+                let cachedData = await GET_ASYNC(longUrl);
+                return res.status(307).json({ status: true, msg: "Url Details.", data: JSON.parse(cachedData) });
+            }
+            const urlCode = shortid.generate(longUrl).toLowerCase()
+            let url = await urlModel.findOne({ urlCode: urlCode })
+            if (url) {
+                return res.status(400).send({ status: false, msg: `The urlCode ${urlCode} is already present, create another UrlCode.`, });
+            }
+            const shortUrl = baseUrl + '/' + urlCode
+            const newUrl = { longUrl, shortUrl, urlCode }
+            const short = await urlModel.create(newUrl)
+            const newData = {
+                longUrl: short.longUrl,
+                shortUrl: short.shortUrl,
+                urlCode: short.urlCode
+            }
+            await SET_ASYNC(`${urlCode}`, JSON.stringify(longUrl));
+            await SET_ASYNC(`${longUrl}`, JSON.stringify(longUrl));
+            console.log(JSON.stringify(longUrl))
+            return res.status(201).send({ status: true, data: newData })
+        } catch (err) {
+            return res.status(500).send({ status: false, msg: error.message });
+        }
     }
-    const urlCode = shortid.generate(longUrl)
-    let url=await urlModel.findOne({urlCode:urlCode}).select({_id:0,_v:0})
-    if(url){
-        return res.status(409).send({status:false,message:"already exist"})
+
+const getShortUrl = async function (req, res) {
+    try {
+        urlCode = req.params.urlCode;
+        let url1 = await GET_ASYNC(`${urlCode}`);
+        console.log(url1);
+        if (url1) {
+            return res.status(302).redirect(JSON.parse(url1))
+        }
+        let url = await urlModel.findOne({ urlCode:urlCode})
+        console.log(url);
+        if (url) {
+            await SET_ASYNC(`${urlCode}`, JSON.stringify(url.longUrl));
+            return res.status(302).redirect(url.longUrl);
+        }
+        return res.status(404).send({ status: false, message: "No such URL FOUND or given URl is not valid" })
+    } catch (err) {
+        res.status(500).json({ status: false, msg: err.message });
     }
-    const shortUrl = baseUrl + '/' + urlCode
-    const newUrl={longUrl,shortUrl,urlCode}
-    const short=await urlModel.create(newUrl)
-    const newData={
-    urlCode:short.urlCode,
-    longUrl:short.longUrl,
-    shortUrl:short.shortUrl
-    }  
-return res.status(201).send({status:true,data:newData})
-}catch(err){
-return res.status(500).send({status:false,Message:err.message});    
-}
 }
 
-const getShortUrl=async function(req,res){
-try{
-    let urlCode=req.params.urlCode;
-       
-    let url=await urlModel.findOne({urlCode:urlCode})
-    if(url){
-        return res.status(302).redirect(url.longUrl)
-    }
-    return res.status(404).send({status:false,message:"url not found"})
-}catch(err){
-return res.status(400).send(err.message)        
-}
-}
-
-module.exports={shortUrl,getShortUrl}
 
 
-//g6SVK8Vi3BEIrxxlasgMPfuaygE9kAji
 
-//redis-10023.c8.us-east-1-4.ec2.cloud.redislabs.com
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+module.exports = { shortUrl, getShortUrl }
+
+
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
